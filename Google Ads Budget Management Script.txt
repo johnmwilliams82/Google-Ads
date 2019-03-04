@@ -185,7 +185,7 @@ function main() {
   // ------------------------------
   // CHECK IF BUDGETS HAVE EXCEEDED
   // **Update so you can manage campaign level, within account
-  // **Update .withCondition(LabelNames CONTAINS_ANY ['Update with your campaign level labels']").
+  // **Update line 206 .withCondition(LabelNames CONTAINS_ANY ['Update with your campaign level labels']").
   // ------------------------------
   
   // Account

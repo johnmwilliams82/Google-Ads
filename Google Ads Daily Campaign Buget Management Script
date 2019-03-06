@@ -1,0 +1,215 @@
+//Rather than just updating at the MCC level, by making a tweak the sheet you can manage within an a single account by naming
+//the accounts campaigns a simple but effective change
+//UPDATE LINE 43 WITH YOUR SHEET URL
+// Copyright 2015, Google Inc. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/**
+ * @name MCC Flexible Budgets
+ *
+ * @overview The MCC Flexible Budgets script dynamically adjusts campaign budget
+ *     daily for accounts under an MCC account with a custom budget distribution
+ *     scheme. See https://developers.google.com/google-ads/scripts/docs/solutions/adsmanagerapp-flexible-budgets
+ *     for more details.
+ *
+ * @author Google Ads Scripts Team [adwords-scripts@googlegroups.com]
+ *
+ * @version 1.0.4
+ *
+ * @changelog
+ * - version 1.0.4
+ *   - Add support for video and shopping campaigns.
+ * - version 1.0.3
+ *   - Added validation for external spreadsheet setup.
+ * - version 1.0.2
+ *   - Fix a minor bug in variable naming.
+ *   - Use setAmount on the budget instead of campaign.setBudget.
+ * - version 1.0.1
+ *   - Improvements to time zone handling.
+ * - version 1.0
+ *   - Released initial version.
+ */
+
+var SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/15oj06Kdv_L7NnLGLwL7Q6RBTAejgpD1zhy0eq_AouCo/edit#gid=0';
+
+// Please fix the following variables if you need to reformat the spreadsheet
+// column numbers of each config column. Column A in your spreadsheet has
+// column number of 1, B has number of 2, etc.
+var COLUMN = {
+  accountId: 2,
+  campaignName: 3,
+  startDate: 4,
+  endDate: 5,
+  totalBudget: 6,
+  results: 7
+};
+
+// Actual config (without header and margin) starts from this row
+var CONFIG_START_ROW = 5;
+
+function main() {
+  // Uncomment the following function to test your budget strategy function
+  // testBudgetStrategy(calculateBudgetEvenly, 10, 500);
+  setNewBudget(calculateBudgetWeighted);
+}
+
+// Core logic for calculating and setting campaign daily budget
+function setNewBudget(budgetFunc) {
+  Logger.log('Using spreadsheet - %s.', SPREADSHEET_URL);
+  var spreadsheet = validateAndGetSpreadsheet(SPREADSHEET_URL);
+  spreadsheet.setSpreadsheetTimeZone(AdsApp.currentAccount().getTimeZone());
+  var sheet = spreadsheet.getSheets()[0];
+
+  var endRow = sheet.getLastRow();
+
+  var mccAccount = AdsApp.currentAccount();
+  sheet.getRange(2, 6, 1, 2).setValue(mccAccount.getCustomerId());
+
+  for (var i = CONFIG_START_ROW; i <= endRow; i++) {
+    Logger.log('Processing row %s', i);
+
+    var accountId = sheet.getRange(i, COLUMN.accountId).getValue();
+    var campaignName = sheet.getRange(i, COLUMN.campaignName).getValue();
+    var startDate = new Date(sheet.getRange(i, COLUMN.startDate).getValue());
+    var endDate = new Date(sheet.getRange(i, COLUMN.endDate).getValue());
+    var totalBudget = sheet.getRange(i, COLUMN.totalBudget).getValue();
+    var resultCell = sheet.getRange(i, COLUMN.results);
+
+    var accountIter = AdsManagerApp.accounts().withIds([accountId]).get();
+    if (!accountIter.hasNext()) {
+      resultCell.setValue('Unknown account');
+      continue;
+    }
+    var account = accountIter.next();
+    AdsManagerApp.select(account);
+
+    var campaign = getCampaign(campaignName);
+    if (!campaign) {
+      resultCell.setValue('Unknown campaign');
+      continue;
+    }
+
+    var today = new Date();
+    if (today < startDate) {
+      resultCell.setValue('Budget not started yet');
+      continue;
+    }
+    if (today > endDate) {
+      resultCell.setValue('Budget already finished');
+      continue;
+    }
+
+  var costSoFar = campaign.getStatsFor(
+      getDateStringInTimeZone('yyyyMMdd', startDate),
+      getDateStringInTimeZone('yyyyMMdd', endDate)).getCost();
+    var daysSoFar = datediff(startDate, today);
+    var totalDays = datediff(startDate, endDate);
+    var newBudget = budgetFunc(costSoFar, totalBudget, daysSoFar, totalDays);
+    campaign.getBudget().setAmount(newBudget);
+    Logger.log('AccountId=%s, CampaignName=%s, StartDate=%s, EndDate=%s, ' +
+               'CostSoFar=%s, DaysSoFar=%s, TotalDays=%s, NewBudget=%s',
+               accountId, campaignName, startDate, endDate,
+               costSoFar, daysSoFar, totalDays, newBudget);
+    resultCell.setValue('Set today\'s budget to ' + newBudget);
+  }
+
+  // update "Last execution" timestamp
+  sheet.getRange(1, 3).setValue(today);
+  AdsManagerApp.select(mccAccount);
+}
+
+// One calculation logic that distributes remaining budget evenly
+function calculateBudgetEvenly(costSoFar, totalBudget, daysSoFar, totalDays) {
+  var daysRemaining = totalDays - daysSoFar;
+  var budgetRemaining = totalBudget - costSoFar;
+  if (daysRemaining <= 0) {
+    return budgetRemaining;
+  } else {
+    return budgetRemaining / daysRemaining;
+  }
+}
+
+// One calculation logic that distributes remaining budget in a weighted manner
+function calculateBudgetWeighted(costSoFar, totalBudget, daysSoFar, totalDays) {
+  var daysRemaining = totalDays - daysSoFar;
+  var budgetRemaining = totalBudget - costSoFar;
+  if (daysRemaining <= 0) {
+    return budgetRemaining;
+  } else {
+    return budgetRemaining / (2 * daysRemaining - 1);
+  }
+}
+
+// Test function to verify budget calculation logic
+function testBudgetStrategy(budgetFunc, totalDays, totalBudget) {
+  var daysSoFar = 0;
+  var costSoFar = 0;
+  while (daysSoFar <= totalDays + 2) {
+    var newBudget = budgetFunc(costSoFar, totalBudget, daysSoFar, totalDays);
+    Logger.log('Day %s of %s, new budget %s, cost so far %s',
+               daysSoFar + 1, totalDays, newBudget, costSoFar);
+    costSoFar += newBudget;
+    daysSoFar += 1;
+  }
+}
+
+// Return number of days between two dates, rounded up to nearest whole day.
+function datediff(from, to) {
+  var millisPerDay = 1000 * 60 * 60 * 24;
+  return Math.ceil((to - from) / millisPerDay);
+}
+
+// Produces a formatted string representing a given date in a given time zone.
+function getDateStringInTimeZone(format, date, timeZone) {
+  date = date || new Date();
+  timeZone = timeZone || AdsApp.currentAccount().getTimeZone();
+  return Utilities.formatDate(date, timeZone, format);
+}
+
+/**
+ * Finds a campaign by name, whether it is a regular, video, or shopping
+ * campaign, by trying all in sequence until it finds one.
+ *
+ * @param {string} campaignName The campaign name to find.
+ * @return {Object} The campaign found, or null if none was found.
+ */
+function getCampaign(campaignName) {
+  var selectors = [AdsApp.campaigns(), AdsApp.videoCampaigns(),
+      AdsApp.shoppingCampaigns()];
+  for(var i = 0; i < selectors.length; i++) {
+    var campaignIter = selectors[i].
+        withCondition('CampaignName = "' + campaignName + '"').
+        get();
+    if (campaignIter.hasNext()) {
+      return campaignIter.next();
+    }
+  }
+  return null;
+}
+
+/**
+ * Validates the provided spreadsheet URL to make sure that it's set up
+ * properly. Throws a descriptive error message if validation fails.
+ *
+ * @param {string} spreadsheeturl The URL of the spreadsheet to open.
+ * @return {Spreadsheet} The spreadsheet object itself, fetched from the URL.
+ * @throws {Error} If the spreadsheet URL hasn't been set
+ */
+function validateAndGetSpreadsheet(spreadsheeturl) {
+  if (spreadsheeturl == 'YOUR_SPREADSHEET_URL') {
+    throw new Error('Please specify a valid Spreadsheet URL. You can find' +
+        ' a link to a template in the associated guide for this script.');
+  }
+  return SpreadsheetApp.openByUrl(spreadsheeturl);
+}

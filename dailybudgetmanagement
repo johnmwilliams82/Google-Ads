@@ -1,0 +1,272 @@
+/* AdWords Script to limit daily budget
+     -------------------------------------
+     //thanks to Fred V*******
+     daily budget script should work with bing, it will highlight changes when implimented
+   */
+
+function main() {
+  // INSTRUCTIONS: put '//' in front of one of the following lines that starts with var 'done = ...'
+  //line 23 in this code remove '//' in front of Var this example it is already removed!! Will pause when
+  //daily budget is reached for the campaigns labeled run hourly
+  //line 27 in this code remove '//' in front of Var for the 2nd script you setup to run daily at a time you pick
+  //remember to place '//' back in front of line 23 Var to prevent any errors
+  // ------------------------------------------------------------------------------------------------
+  
+  var scope = "Campaigns"; // accepted values are "Campaigns", "Ad Groups", "Keywords", "Ad Text"
+  var maxCost = 18.75; // set this to the maximum cost for each item. 
+  var dateRange = "TODAY"; // the amount of time in which the item is allowed to accrue no more than the maxCost - TODAY, LAST_7_DAYS, LAST_14_DAYS, LAST_30_DAYS
+  var labelName = "limitedbudget";  // set this to the name of the label you are applying to the items to be included 
+  var email = "your email"; // Set this to the email address to get a notification when the script makes changes
+  
+
+  // You have to create two scripts from this file. One runs hourly and should include the line below which will check if spend today for any campaign with the label 'Limit Daily Spend' is greater than 100, and if so, pause it.
+  var done = doIt("Cost > " + maxCost, "LabelNames CONTAINS_ANY ['" + labelName + "']", "", dateRange, "Pause", scope, email);    
+  
+  // The second copy of this script runs every morning between midnight and 1am and includes the line below which will enable any campaigns with the label 'Limit Daily Spend'. 
+  // This is needed so your campaigns that got paused by the hourly script are automatically unpaused every day
+  // var done = doIt("LabelNames CONTAINS_ANY ['" + labelName + "']", "", "", dateRange, "Enable", scope, email);    
+  
+}
+
+function doIt(condition1, condition2, condition3, dateRange, thenAction, scope, email) {
+
+  var enabledCounter = 0;
+  var deletedCounter = 0;
+  var pausedCounter = 0;
+  var enabledList = new Array();
+  var pausedList = new Array();
+  var deletedList = new Array();
+  
+  // Replace variables
+  var yesterday = getDateInThePast(1);
+  var today = getDateInThePast(0);
+  condition1 = condition1.replace("{{YESTERDAY}}", yesterday);
+  condition2 = condition2.replace("{{YESTERDAY}}", yesterday);
+  condition3 = condition3.replace("{{YESTERDAY}}", yesterday);
+  
+  condition1 = condition1.replace("{{TODAY}}", today);
+  condition2 = condition2.replace("{{TODAY}}", today);
+  condition3 = condition3.replace("{{TODAY}}", today);
+  
+  //Logger.log(condition1 + condition2 + condition3);
+  //Logger.log(accountId + " " + thisAccountId);
+  //Logger.log(active);
+  
+  // Campaigns
+  if(scope.toLowerCase().indexOf("campaign") != -1) {
+    if(condition3 != "") {
+      var iterator = AdWordsApp.campaigns()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .withCondition(condition3)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition2 != "") {
+      var iterator = AdWordsApp.campaigns()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition1 != "") {
+      var iterator = AdWordsApp.campaigns()
+      .withCondition(condition1)
+      .forDateRange(dateRange)
+      .get();
+    } 
+    
+    while(iterator.hasNext()){
+      var item = iterator.next();
+      var name = item.getName();
+      Logger.log("Match found: " + name);
+      
+      if(thenAction.toLowerCase().indexOf("enable") != -1) {
+        item.enable();
+        enabledCounter++;
+        enabledList.push(name);
+      } else if(thenAction.toLowerCase().indexOf("pause") != -1) {
+        item.pause();
+        Logger.log("Paused");
+        pausedCounter++;
+        pausedList.push(name);
+      } 
+    } 
+  } else
+  
+    
+  // Ad Groups
+  if(scope.toLowerCase().indexOf("ad group") != -1) {
+    if(condition3 != "") {
+      var iterator = AdWordsApp.adGroups()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .withCondition(condition3)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition2 != "") {
+      var iterator = AdWordsApp.adGroups()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition1 != "") {
+      var iterator = AdWordsApp.adGroups()
+      .withCondition(condition1)
+      .forDateRange(dateRange)
+      .get();
+    } 
+    
+    while(iterator.hasNext()){
+      var item = iterator.next();
+      var name = item.getName();
+      var campaignName = item.getCampaign().getName();
+      Logger.log("Match found: " + "campaign: '" + campaignName + "' ad group: '" + name + "'");
+      
+      if(thenAction.toLowerCase().indexOf("enable") != -1) {
+        item.enable();
+        enabledCounter++;
+        enabledList.push("campaign: '" + campaignName + "' ad group: '" + name + "'");
+      } else if(thenAction.toLowerCase().indexOf("pause") != -1) {
+        item.pause();
+        Logger.log("Paused");
+        pausedCounter++;
+        pausedList.push("campaign: '" + campaignName + "' ad group: '" + name + "'");
+      } 
+    }
+    
+    
+    
+    
+    // Ads
+  } else if(scope.toLowerCase().indexOf("ad text") != -1) {
+    if(condition3 != "") {
+      var adIterator = AdWordsApp.ads()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .withCondition(condition3)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition2 != "") {
+      var adIterator = AdWordsApp.ads()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition1 != "") {
+      var adIterator = AdWordsApp.ads()
+      .withCondition(condition1)
+      .forDateRange(dateRange)
+      .get();
+    } 
+    
+    while(adIterator.hasNext()) {
+      
+      var ad = adIterator.next();
+      var adHeadline = ad.getHeadline();
+      var description1 = ad.getDescription1();
+      var description2 = ad.getDescription2();
+      var displayUrl = ad.getDisplayUrl();
+      
+      Logger.log("Ad found: " + adHeadline + " " + description1 + " " + description2 + " " + displayUrl);
+      var fullAdText = adHeadline + " " + description1 + " " + description2 + " " + displayUrl;
+      
+      if(thenAction.toLowerCase().indexOf("enable") != -1) {
+        ad.enable();
+        enabledCounter++;
+        enabledList.push(fullAdText);
+      } else if(thenAction.toLowerCase().indexOf("pause") != -1) {
+        ad.pause();
+        pausedCounter++;
+        pausedList.push(fullAdText);
+      } else if(thenAction.toLowerCase().indexOf("delete") != -1) {
+        ad.remove();
+        deletedCounter++;
+        deletedList.push(name);
+      }
+    } // while(adIterator.hasNext())
+    
+    
+    
+    // Keywords
+  } else if(scope.toLowerCase().indexOf("keyword") != -1) {
+    if(condition3 != "") {
+      var iterator = AdWordsApp.keywords()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .withCondition(condition3)
+      .forDateRange(dateRange)
+      .get();
+    } else if(condition2 != "") {
+      var iterator = AdWordsApp.keywords()
+      .withCondition(condition1)
+      .withCondition(condition2)
+      .forDateRange(dateRange)
+      .get();
+    } if(condition1 != "") {
+      var iterator = AdWordsApp.keywords()
+      .withCondition(condition1)
+      .forDateRange(dateRange)
+      .get();
+    } 
+    
+    while(iterator.hasNext()){
+      var item = iterator.next();
+      var name = item.getText();
+      var campaignName = item.getCampaign().getName();
+      var adGroupName = item.getAdGroup().getName();
+      Logger.log("Match found: " + "campaign: '" + campaignName + "' ad group: '" + adGroupName + "' kw: '" + name + "'");
+      
+      if(thenAction.toLowerCase().indexOf("enable") != -1) {
+        item.enable();
+        enabledCounter++;
+        enabledList.push("campaign: '" + campaignName + "' ad group: '" + adGroupName + "' kw: '" + name + "'");
+      } else if(thenAction.toLowerCase().indexOf("pause") != -1) {
+        item.pause();
+        Logger.log("Paused");
+        pausedList.push("campaign: '" + campaignName + "' ad group: '" + adGroupName + "' kw: '" + name + "'");
+        pausedCounter;
+      } else if(thenAction.toLowerCase().indexOf("delete") != -1) {
+        item.remove();
+        Logger.log("Deleted");
+        deletedCounter++;
+        deletedList.push("campaign: '" + campaignName + "' ad group: '" + adGroupName + "' kw: '" + name + "'");
+      } 
+    } // while iterator hasnext
+  } // if scope == keyword
+  
+  
+  if(thenAction.toLowerCase().indexOf("enable") != -1) {
+    enabledList.sort();
+    var list = enabledList;
+    var body = enabledCounter + " " + scope + " Enabled\n";
+  } else if(thenAction.toLowerCase().indexOf("pause") != -1) {
+    pausedList.sort();
+    var list = pausedList;
+    var body = pausedCounter + " " + scope + " Paused\n";
+  } else if(thenAction.toLowerCase().indexOf("delete") != -1) {
+    deletedList.sort();
+    var list = deletedList;
+    var body = deletedCounter + " " + scope + " Deleted\n";
+  } 
+
+  var totalChanges = 0 + enabledCounter + pausedCounter + deletedCounter;
+  
+  
+  if(email && totalChanges > 0) {
+    var subject = "Automated Rules for " + accountName + ": " + totalChanges + " " + scope + " " + thenAction + "d";
+    
+    for(var itemCounter = 0; itemCounter < list.length; itemCounter++) {
+      var item = list[itemCounter];
+      body += "\n" + item;
+    }
+    
+    MailApp.sendEmail(email, subject, body);
+  }
+  
+  return(1);
+}
+
+function getDateInThePast(numDays) {
+  var today = new Date();
+  today.setDate(today.getDate() - numDays);
+  return Utilities.formatDate(today, "PST", "yyyy-MM-dd");
+}                    
